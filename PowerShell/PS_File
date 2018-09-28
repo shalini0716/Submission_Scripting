@@ -1,0 +1,90 @@
+#Name of the source and dest storage accounts
+$sourcestoraccname= Get-AutomationVariable -Name 'source account name'
+$deststoraccname= Get-AutomationVariable -Name 'destaccountname'
+
+#Prime or second Keys for the source and dest Azure storage accounts
+$sourcekey= Get-AutomationVariable -Name 'sourcekeyvalue'
+$destkey= Get-AutomationVariable -Name "destkeyvalue"
+
+#creating the context variable for the source and dest of Azure storage accounts
+$sourcestorageaccountcontext= New-AzureStorageContext -StorageAccountName $sourcestoraccname -StorageAccountKey $sourcekey
+$deststorageaccountcontext= New-AzureStorageContext -StorageAccountName $deststoraccname -StorageAccountKey $destkey
+
+Write-Output 'Getting the list of containers from storage account' $sourcestoraccname ' and ' $deststoraccname -ForegroundColor Green -BackgroundColor DarkYellow
+
+#getting the list of container names in to a variable
+$containerlistsource=(Get-AzureStorageContainer -Context $sourcestorageaccountcontext).Name
+$containertotalcountsource= $containerlistsource.Count
+
+#getting the list of container names in to a variable
+$containerlistdest=(Get-AzureStorageContainer -Context $deststorageaccountcontext).Name
+$containertotalcountdest= $containerlistdest.Count
+
+Write-Output 'getting into each container from the storage account' $sourcestoraccname -ForegroundColor Green -BackgroundColor DarkYellow
+
+$containercount=0
+$blobcount=0
+
+#creating a foreach loop to go through every container in the storge account
+foreach ($containersource in $containerlistsource){
+
+    $containercount= 1 + $containercount
+
+    Write-Output '====================================================================================================================================='
+    Write-Output 'Working in the container' $containersource 'Which is at position ('$containercount 'of' $containertotalcountsource')containers' -ForegroundColor Yellow -BackgroundColor DarkMagenta
+     
+
+    #getting a list of blobs in to a variable
+    $blobslistsource=(Get-AzureStorageBlob -Container $containersource -Context $sourcestorageaccountcontext).Name
+    $blobtotalcount=$blobslistsource.Count
+
+    $blobcount=0
+    $changedblobscount=0
+
+    #creating a foreach loop to go through every blob in the container
+    foreach ($blobname in $blobslistsource){
+        
+        $blobcount= 1+$blobcount
+
+        Write-Output '--------- Working with the' $blobname 'Which is at position('$blobcount 'out of' $blobtotalcount')blobs in ('$containercount 'of' $containertotalcountsource') Containers ------------' -ForegroundColor Yellow -BackgroundColor DarkCyan
+
+        #Getting the last modified date of the blob in to variable
+        $lastmodified= (Get-AzureStorageBlob -Container $containersource -Blob $blobname -Context $sourcestorageaccountcontext).LastModified
+        $datemodified=$lastmodified.Date
+        $lastmodifiedcont= (Get-AzureStorageContainer -Name $containersource -Context $sourcestorageaccountcontext).LastModified
+        $datemodifiedcont= $lastmodifiedcont.Date
+
+        #getting todays date for the container name as it don't accepts special characters other than -
+        $todaysdate= get-date -Format M-d-yyyy
+
+        #getting todays date
+        $date= Get-Date -Format d
+        
+        #creating a if statement to create a container and copy the changed files in to that container if there are changes in the blob that are made today
+        if($datemodified -contains $date){
+            $containername=$containersource+$todaysdate
+            Write-Output 'New changes in the Blob ' $blobname -ForegroundColor Yellow -BackgroundColor DarkGreen
+            
+            Write-Output 'Creating a new container' $containername -ForegroundColor Yellow -BackgroundColor DarkGreen
+            New-AzureStorageContainer -Name $containername -Permission Blob -Context $deststorageaccountcontext
+
+            #C:\Program Files (x86)\Microsoft SDKs\Azure\AzCopy\AzCopy.exe
+            Write-Output 'Copping the blob' $blobname 'into a container' $containername 'Which is at position ('$blobcount 'out of' $blobtotalcount')blobs' -ForegroundColor Yellow -BackgroundColor DarkGreen 
+            
+            Get-AzureStorageContainer -Name $containersource -Context $sourcestorageaccountcontext | Start-AzureStorageBlobCopy -SrcContainer $containersource -SrcBlob $blobname -DestContainer $containername -DestBlob $blobname -DestContext $deststorageaccountcontext -Force
+            #Get-AzureStorageBlob -Container $containersource -Blob $blobname -Context $sourcestorageaccountcontext | Get-AzureStorageContainer -Context $deststorageaccountcontext | Get-AzureStorageBlobContent -Destination 'https://testsourceaccount.blob.core.windows.net/test'
+            #Get-AzureStorageBlob -Container $containersource -Blob $blobname -Context $sourcestorageaccountcontext | Start-AzureStorageBlobCopy -AbsoluteUri https://$deststoraccname.blob.core.windows.net -DestContainer test -DestBlob $blobname -DestContext $deststorageaccountcontext
+            #Azcopy -sourcestorageaccountname $sourcestoraccname -deststorageaccountname $deststoraccname -sourcecontainername $containersource -destcontainername test -sourcekey $sourcekey -destkey $destkey -blobname $blobname
+            #AzCopy /Source:https://$sourcestoraccname.blob.core.windows.net/$containersource /Dest:https://$deststoraccname.blob.core.windows.net/$containername /SourceKey:$sourcekey /DestKey:$destkey /Pattern:$blobname /XO /s -y
+            Write-Output 'Working in the container' $containersource 'Which is at position ('$containercount 'out of' $containertotalcountsource') containers' -ForegroundColor Yellow -BackgroundColor DarkGreen
+            $changedblobscount=1+ $changedblobscount
+
+        }
+
+        else{Write-Output 'No changes in the blob' $blobname 'today' -ForegroundColor Yellow -BackgroundColor Black } 
+
+    }
+
+    Write-Output 'Total number of Blobs that are changed and Backup is done =' $changedblobscount
+}
+
